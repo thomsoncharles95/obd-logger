@@ -84,7 +84,9 @@ details summary{color:var(--mute);font-size:13px;margin-bottom:6px}
 
 <script>
 const $=id=>document.getElementById(id);
-const SERVICES=[0xfff0,0xffe0,0x18f0,'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
+const SERVICES=['0000fff0-0000-1000-8000-00805f9b34fb','0000ffe0-0000-1000-8000-00805f9b34fb','000018f0-0000-1000-8000-00805f9b34fb','e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
+let step='';
+const errText=e=>{if(!e)return 'unknown';if(typeof e==='string')return e;return [e.name,e.message].filter(Boolean).join(': ')||JSON.stringify(e)||String(e)};
 /* pid: [name, unit, fast, decode(bytes)] */
 const W=(a,b)=>a*256+b;
 const DEC={
@@ -169,23 +171,27 @@ async function connect(){
   try{
     if(!navigator.bluetooth){setStatus('This browser has no Web Bluetooth. On iPhone use the Bluefy browser; on Android use Chrome.','');return}
     try{wake=await navigator.wakeLock.request('screen')}catch(e){}
+    step='choosing device';
     if(!dev){
       dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SERVICES});
       dev.addEventListener('gattserverdisconnected',onDisc);
     }
     $('connect').disabled=true;setStatus('Connecting to '+(dev.name||'adapter')+'…','warn');
+    step='opening Bluetooth connection';
     srv=await dev.gatt.connect();
+    step='finding OBD service';
     let svc=null;
     for(const u of SERVICES){try{svc=await srv.getPrimaryService(u);break}catch(e){}}
     if(!svc)throw new Error('No OBD service found on this device. Is it the Veepeak?');
-    rx=tx=null;
+    rx=tx=null;step='reading characteristics';
     for(const c of await svc.getCharacteristics()){
       if(!rx&&c.properties.notify)rx=c;
       if(!tx&&(c.properties.write||c.properties.writeWithoutResponse))tx=c;
     }
     if(!rx||!tx)throw new Error('Adapter characteristics not found.');
     rx.addEventListener('characteristicvaluechanged',onData);
-    await rx.startNotifications();
+    step='starting notifications';
+    await rx.startNotifications();step='initialising adapter';
     setStatus('Starting adapter…','warn');
     for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSP0']){try{await send(c,c==='ATZ'?6000:3000)}catch(e){}}
     if(!supported.length){
@@ -198,7 +204,7 @@ async function connect(){
     $('connect').textContent='Reconnect';
     start();
   }catch(e){
-    setStatus('Connect failed: '+e.message,'');
+    setStatus('Connect failed while '+step+': '+errText(e),'');
   }finally{$('connect').disabled=false}
 }
 function onDisc(){
