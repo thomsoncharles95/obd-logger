@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OBD Live Logger</title>
+<style>
+:root{--bg:#111214;--card:#1b1d21;--ink:#f2f1ec;--mute:#8b8d93;--line:#2a2d33;--acc:#f2c200;--red:#ff4d3d;--grn:#35c46a;--blue:#4c8dff}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 -apple-system,system-ui,Segoe UI,Roboto,sans-serif}
+body{padding:12px 12px calc(96px + env(safe-area-inset-bottom));max-width:760px;margin:auto}
+header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+h1{font-size:17px;margin:0;flex:1}
+.dot{width:10px;height:10px;border-radius:50%;background:#555;display:inline-block;margin-right:6px}
+.dot.on{background:var(--grn)}.dot.warn{background:var(--acc)}
+button{background:var(--acc);color:#111;border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600}
+button.alt{background:#2a2d33;color:var(--ink)}
+button:disabled{opacity:.4}
+.status{color:var(--mute);font-size:13px;width:100%}
+.big{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center}
+.tile .l{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.tile .v{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums}
+.tile .u{font-size:12px;color:var(--mute)}
+.tile.hit{border-color:var(--red);background:#3a1713}
+canvas{width:100%;height:110px;display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-bottom:10px}
+.cell{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 9px}
+.cell .l{font-size:11px;color:var(--mute)}
+.cell .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.cell .u{font-size:11px;color:var(--mute);font-weight:400}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px}
+.sec h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:99px;padding:4px 10px;font-size:12px;color:var(--mute);user-select:none}
+.chip.on{background:#2b2711;border-color:var(--acc);color:var(--acc)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input[type=number],input[type=text]{background:#0e0f11;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;width:90px}
+input[type=text]{width:auto;flex:1;min-width:140px}
+label{font-size:13px;color:var(--mute)}
+.ev{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;font-variant-numeric:tabular-nums}
+.ev b.m{color:var(--acc)}.ev b.a{color:var(--red)}
+pre{background:#0e0f11;border-radius:8px;padding:8px;font-size:12px;max-height:160px;overflow:auto;margin:8px 0 0;white-space:pre-wrap}
+#bar{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:linear-gradient(transparent,var(--bg) 30%);display:flex;gap:10px;align-items:center;justify-content:center}
+#knock{flex:1;max-width:520px;height:68px;font-size:22px;background:var(--red);color:#fff;border-radius:16px;letter-spacing:.04em}
+#knock:active{transform:scale(.98);background:#c9302a}
+#bar small{color:var(--mute);font-size:11px;text-align:right;min-width:70px}
+.hide{display:none}
+details summary{color:var(--mute);font-size:13px;margin-bottom:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="dot"></span>OBD Live Logger</h1>
+  <button id="connect">Connect</button>
+  <div class="status" id="status">Open in Bluefy (iPhone) or Chrome (Android). Ignition on, then tap Connect and pick your Veepeak.</div>
+</header>
+
+<div class="big">
+  <div class="tile" id="tRpm"><div class="l">RPM</div><div class="v" id="bRpm">–</div><div class="u">rpm</div></div>
+  <div class="tile" id="tLoad"><div class="l">Load</div><div class="v" id="bLoad">–</div><div class="u">%</div></div>
+  <div class="tile" id="tTim"><div class="l">Timing adv.</div><div class="v" id="bTim">–</div><div class="u">° BTDC</div></div>
+</div>
+<canvas id="mini"></canvas>
+
+<div class="sec"><div class="row"><label><input type="checkbox" id="pFast" checked> Fast mode (turn off if readings stall)</label></div></div>
+
+<div class="sec"><h2>All sensors</h2><div class="grid" id="grid"><div style="color:var(--mute);font-size:13px">Connect to see every sensor your ECU reports.</div></div></div>
+
+<div class="sec"><h2>Polling (tap to turn off a sensor and speed up the rest)</h2><div class="chips" id="chips"></div></div>
+
+<div class="sec"><h2>Save the log</h2>
+  <div class="row"><button class="alt" id="bShare">Share file</button><button class="alt" id="bDl">Download</button><button class="alt" id="bCopy">Copy CSV</button></div>
+  <div class="status" id="saveMsg" style="margin-top:6px"></div>
+  <div class="status">Same format as Car Scanner logs: SECONDS;PID;VALUE;UNITS.</div>
+</div>
+
+<details class="sec"><summary>Advanced: raw adapter console (BMW DME / custom requests)</summary>
+  <div class="row"><input type="text" id="raw" placeholder="e.g. ATSH6F1  or  010C" autocapitalize="characters" autocomplete="off"><button class="alt" id="bRaw">Send</button></div>
+  <pre id="rawOut">Replies appear here. Sent while logging is running, so the adapter header (ATSH) you set stays active until you send ATD or reconnect.</pre>
+</details>
+
+<div id="bar"><small id="rate"></small><button id="bSave2" class="alt">Save log</button><small id="rows"></small></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const SERVICES=[0xfff0,0xffe0,0x18f0,'e7810a71-73ae-499d-8c15-faa9aef0c3f2'];
+/* pid: [name, unit, fast, decode(bytes)] */
+const W=(a,b)=>a*256+b;
+const DEC={
+0x04:['Engine load','%',1,b=>b[0]*100/255],
+0x05:['Coolant temp','°C',0,b=>b[0]-40],
+0x06:['STFT bank 1','%',0,b=>(b[0]-128)*100/128],
+0x07:['LTFT bank 1','%',0,b=>(b[0]-128)*100/128],
+0x08:['STFT bank 2','%',0,b=>(b[0]-128)*100/128],
+0x09:['LTFT bank 2','%',0,b=>(b[0]-128)*100/128],
+0x0A:['Fuel pressure','kPa',0,b=>b[0]*3],
+0x0B:['Intake manifold pressure','kPa',1,b=>b[0]],
+0x0C:['Engine RPM','rpm',1,b=>W(b[0],b[1])/4],
+0x0D:['Vehicle speed','km/h',0,b=>b[0]],
+0x0E:['Timing advance','°',1,b=>b[0]/2-64],
+0x0F:['Intake air temp','°C',0,b=>b[0]-40],
+0x10:['MAF air flow','g/s',1,b=>W(b[0],b[1])/100],
+0x11:['Throttle position','%',1,b=>b[0]*100/255],
+0x1F:['Run time','s',0,b=>W(b[0],b[1])],
+0x21:['Distance with MIL on','km',0,b=>W(b[0],b[1])],
+0x22:['Fuel rail pressure (rel)','kPa',0,b=>W(b[0],b[1])*0.079],
+0x23:['Fuel rail pressure (gauge)','kPa',0,b=>W(b[0],b[1])*10],
+0x2C:['Commanded EGR','%',0,b=>b[0]*100/255],
+0x2E:['Evap purge','%',0,b=>b[0]*100/255],
+0x2F:['Fuel level','%',0,b=>b[0]*100/255],
+0x31:['Distance since codes cleared','km',0,b=>W(b[0],b[1])],
+0x33:['Barometric pressure','kPa',0,b=>b[0]],
+0x34:['Lambda sensor 1','λ',0,b=>W(b[0],b[1])*2/65536],
+0x35:['Lambda sensor 2','λ',0,b=>W(b[0],b[1])*2/65536],
+0x36:['Lambda sensor 3','λ',0,b=>W(b[0],b[1])*2/65536],
+0x37:['Lambda sensor 4','λ',0,b=>W(b[0],b[1])*2/65536],
+0x3C:['Catalyst temp B1S1','°C',0,b=>W(b[0],b[1])/10-40],
+0x3D:['Catalyst temp B2S1','°C',0,b=>W(b[0],b[1])/10-40],
+0x3E:['Catalyst temp B1S2','°C',0,b=>W(b[0],b[1])/10-40],
+0x3F:['Catalyst temp B2S2','°C',0,b=>W(b[0],b[1])/10-40],
+0x42:['Control module voltage','V',0,b=>W(b[0],b[1])/1000],
+0x43:['Absolute load','%',0,b=>W(b[0],b[1])*100/255],
+0x44:['Commanded lambda','λ',0,b=>W(b[0],b[1])/32768],
+0x45:['Relative throttle','%',0,b=>b[0]*100/255],
+0x46:['Ambient temp','°C',0,b=>b[0]-40],
+0x47:['Absolute throttle B','%',0,b=>b[0]*100/255],
+0x49:['Accelerator pedal D','%',1,b=>b[0]*100/255],
+0x4A:['Accelerator pedal E','%',0,b=>b[0]*100/255],
+0x4C:['Commanded throttle','%',0,b=>b[0]*100/255],
+0x5C:['Oil temp','°C',0,b=>b[0]-40],
+0x5E:['Fuel rate','L/h',0,b=>W(b[0],b[1])/20],
+0x61:['Driver demand torque','%',0,b=>b[0]-125],
+0x62:['Actual torque','%',0,b=>b[0]-125],
+0x63:['Reference torque','Nm',0,b=>W(b[0],b[1])]
+};
+const hex2=n=>n.toString(16).toUpperCase().padStart(2,'0');
+
+let dev=null,srv=null,tx=null,rx=null,buf='',pending=null,chain=Promise.resolve();
+let supported=[],enabled=new Set(),fails={},vals={},hist={},rows=[],running=false,loopId=0;
+let t0=performance.now(),reqCount=0,reqT=performance.now(),rate=0,wake=null,recovered=null;
+const now=()=>(performance.now()-t0)/1000;
+
+/* ---------- adapter I/O ---------- */
+function onData(e){
+  buf+=new TextDecoder().decode(e.target.value);
+  const i=buf.indexOf('>');
+  if(i>-1){const r=buf.slice(0,i);buf=buf.slice(i+1);if(pending){const p=pending;pending=null;clearTimeout(p.to);p.res(r)}}
+}
+async function writeStr(s){
+  const d=new TextEncoder().encode(s);
+  for(let i=0;i<d.length;i+=20){const c=d.slice(i,i+20);
+    if(tx.properties.writeWithoutResponse&&tx.writeValueWithoutResponse)await tx.writeValueWithoutResponse(c);
+    else if(tx.writeValueWithResponse)await tx.writeValueWithResponse(c);else await tx.writeValue(c)}
+}
+function send(cmd,to=3000){
+  const run=()=>new Promise((res,rej)=>{
+    if(!tx){rej(new Error('not connected'));return}
+    buf='';pending={res,to:setTimeout(()=>{pending=null;rej(new Error('timeout'))},to)};
+    writeStr(cmd+'\r').catch(e=>{clearTimeout(pending&&pending.to);pending=null;rej(e)});
+  });
+  const p=chain.then(run,run);chain=p.catch(()=>{});return p;
+}
+const lines=r=>r.split(/[\r\n]+/).map(s=>s.replace(/\s/g,'').toUpperCase()).filter(Boolean);
+
+/* ---------- connect ---------- */
+function setStatus(t,state){$('status').textContent=t;$('dot').className='dot'+(state?' '+state:'')}
+async function connect(){
+  try{
+    if(!navigator.bluetooth){setStatus('This browser has no Web Bluetooth. On iPhone use the Bluefy browser; on Android use Chrome.','');return}
+    try{wake=await navigator.wakeLock.request('screen')}catch(e){}
+    if(!dev){
+      dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SERVICES});
+      dev.addEventListener('gattserverdisconnected',onDisc);
+    }
+    $('connect').disabled=true;setStatus('Connecting to '+(dev.name||'adapter')+'…','warn');
+    srv=await dev.gatt.connect();
+    let svc=null;
+    for(const u of SERVICES){try{svc=await srv.getPrimaryService(u);break}catch(e){}}
+    if(!svc)throw new Error('No OBD service found on this device. Is it the Veepeak?');
+    rx=tx=null;
+    for(const c of await svc.getCharacteristics()){
+      if(!rx&&c.properties.notify)rx=c;
+      if(!tx&&(c.properties.write||c.properties.writeWithoutResponse))tx=c;
+    }
+    if(!rx||!tx)throw new Error('Adapter characteristics not found.');
+    rx.addEventListener('characteristicvaluechanged',onData);
+    await rx.startNotifications();
+    setStatus('Starting adapter…','warn');
+    for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSP0']){try{await send(c,c==='ATZ'?6000:3000)}catch(e){}}
+    if(!supported.length){
+      setStatus('Finding your ECU and its sensors (up to 15 s)…','warn');
+      await discover();
+    }
+    if(!supported.length)throw new Error('ECU did not answer. Is the ignition on?');
+    buildChips();
+    setStatus('Logging '+supported.length+' sensors from '+(dev.name||'adapter'),'on');
+    $('connect').textContent='Reconnect';
+    start();
+  }catch(e){
+    setStatus('Connect failed: '+e.message,'');
+  }finally{$('connect').disabled=false}
+}
+function onDisc(){
+  running=false;tx=rx=null;
+  setStatus('Disconnected. Log kept ('+rows.length+' rows). Tap Reconnect.','');
+}
+async function discover(){
+  let base=0;
+  for(let n=0;n<8;n++){
+    let r;try{r=await send('01'+hex2(base),15000)}catch(e){break}
+    const l=lines(r).find(x=>x.startsWith('41'+hex2(base)));
+    if(!l)break;
+    const by=l.slice(4).match(/../g)||[];
+    for(let k=0;k<4&&k<by.length;k++){const v=parseInt(by[k],16);for(let j=0;j<8;j++)if(v&(0x80>>j)){const p=base+1+k*8+j;if(DEC[p]&&!supported.includes(p))supported.push(p)}}
+    const last=parseInt(by[3]||'0',16);
+    if(!(last&1))break;
+    base+=0x20;
+  }
+  supported.sort((a,b)=>a-b);
+  supported.forEach(p=>enabled.add(p));
+}
+function buildChips(){
+  const c=$('chips');c.innerHTML='';
+  supported.forEach(p=>{const e=document.createElement('span');e.className='chip'+(enabled.has(p)?' on':'');e.textContent=DEC[p][0];
+    e.onclick=()=>{if(enabled.has(p)){enabled.delete(p);e.classList.remove('on')}else{enabled.add(p);fails[p]=0;e.classList.add('on')}};c.appendChild(e)});
+  const g=$('grid');g.innerHTML='';
+  supported.forEach(p=>{const d=document.createElement('div');d.className='cell';d.innerHTML='<div class="l">'+DEC[p][0]+'</div><div class="v" id="c'+p+'">–</div>';g.appendChild(d)});
+}
+
+/* ---------- poll loop ---------- */
+function start(){running=true;const id=++loopId;loop(id)}
+async function poll(p){
+  const fast=$('pFast').checked;
+  let r;
+  try{r=await send('01'+hex2(p)+(fast?'1':''),2500)}catch(e){if(e.message==='timeout')fails[p]=(fails[p]||0)+1;return}
+  reqCount++;
+  if(r.includes('?')&&fast){$('pFast').checked=false;return}
+  const l=lines(r).find(x=>x.startsWith('41'+hex2(p)));
+  if(!l){fails[p]=(fails[p]||0)+1;if(fails[p]>=3){enabled.delete(p);buildChips()}return}
+  const by=(l.slice(4).match(/../g)||[]).map(h=>parseInt(h,16));
+  if(!by.length)return;
+  const v=DEC[p][3](by);if(!isFinite(v))return;
+  fails[p]=0;onValue(p,v);
+}
+async function loop(id){
+  let rot=0;
+  while(running&&id===loopId){
+    const f=supported.filter(p=>enabled.has(p)&&DEC[p][2]);
+    const s=supported.filter(p=>enabled.has(p)&&!DEC[p][2]);
+    for(const p of f){if(!running||id!==loopId)return;await poll(p)}
+    if(s.length){await poll(s[rot%s.length]);rot++}
+    if(!f.length&&!s.length)await new Promise(r=>setTimeout(r,300));
+    const t=performance.now();if(t-reqT>2000){rate=reqCount/((t-reqT)/1000);reqCount=0;reqT=t}
+  }
+}
+function onValue(p,v){
+  const t=now(),d=DEC[p];
+  vals[p]=v;
+  rows.push(t.toFixed(2)+';'+d[0]+';'+(Math.abs(v)<100?v.toFixed(2):v.toFixed(1))+';'+d[1]+';;');
+  const h=hist[p]||(hist[p]=[]);h.push({t,v});while(h.length&&h[0].t<t-35)h.shift();
+}
+/* ---------- display ---------- */
+function show(){
+  const set=(id,p,d)=>{$(id).textContent=vals[p]==null?'–':vals[p].toFixed(d)};
+  set('bRpm',0x0C,0);set('bLoad',0x04,0);set('bTim',0x0E,1);
+  supported.forEach(p=>{const e=$('c'+p);if(e&&vals[p]!=null){const d=DEC[p];e.innerHTML=(Math.abs(vals[p])<100?vals[p].toFixed(1):vals[p].toFixed(0))+' <span class="u">'+d[1]+'</span>'}});
+  $('rate').textContent=running?rate.toFixed(0)+' req/s':'';
+  $('rows').textContent=rows.length?rows.length.toLocaleString()+' rows':'';
+  mini();
+}
+function mini(){
+  const cv=$('mini'),r=cv.getBoundingClientRect(),dpr=devicePixelRatio||1;
+  if(cv.width!==Math.round(r.width*dpr)){cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.height*dpr)}
+  const g=cv.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,r.width,r.height);
+  const t=now(),a=t-30,X=x=>(x-a)/30*(r.width-8)+4;
+  const line=(p,col,lo,hi)=>{const h=hist[p];if(!h||h.length<2)return;let mn=lo,mx=hi;if(mn==null){mn=1e9;mx=-1e9;h.forEach(x=>{mn=Math.min(mn,x.v);mx=Math.max(mx,x.v)});if(mx-mn<4){mx+=2;mn-=2}}
+    g.strokeStyle=col;g.lineWidth=1.8;g.beginPath();h.forEach((x,i)=>{const px=X(x.t),py=r.height-8-(x.v-mn)/(mx-mn)*(r.height-16);i?g.lineTo(px,py):g.moveTo(px,py)});g.stroke()};
+  line(0x04,'#4c8dff',0,100);line(0x0E,'#f2c200',null,null);
+  g.font='11px sans-serif';g.fillStyle='#f2c200';g.fillText('timing',6,13);g.fillStyle='#4c8dff';g.fillText('load',52,13);g.fillStyle='#8b8d93';g.fillText('last 30 s',r.width-60,13);
+}
+setInterval(show,250);
+
+/* ---------- export ---------- */
+const HEAD='SECONDS;PID;VALUE;UNITS;LATITUDE;LONGITUDE';
+const csv=()=>rows.length?HEAD+'\n'+rows.join('\n'):(recovered||'');
+function fname(){const d=new Date();return 'obd-log-'+d.toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv'}
+function msg(t){$('saveMsg').textContent=t}
+$('bShare').onclick=async()=>{const c=csv();if(!c)return msg('Nothing logged yet.');try{const f=new File([c],fname(),{type:'text/csv'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f]});return}await navigator.share({title:'OBD log',text:c})}catch(e){msg('Share not available here. Try Download or Copy.')}};
+$('bDl').onclick=()=>{const c=csv();if(!c)return msg('Nothing logged yet.');try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:'text/csv'}));a.download=fname();document.body.appendChild(a);a.click();a.remove();msg('Download started.')}catch(e){msg('Download failed. Use Share or Copy.')}};
+$('bCopy').onclick=async()=>{const c=csv();if(!c)return msg('Nothing logged yet.');try{await navigator.clipboard.writeText(c);msg('Copied '+c.split('\n').length+' lines. Paste into Notes or a message.')}catch(e){msg('Copy blocked. Use Share.')}};
+setInterval(()=>{if(rows.length&&running){try{localStorage.setItem('obdLog',csv())}catch(e){}}},10000);
+try{const s=localStorage.getItem('obdLog');if(s){recovered=s;msg('Recovered a log from your last session ('+s.split('\n').length+' lines). Share or Download will save it until you start a new one.')}}catch(e){}
+
+/* ---------- wiring ---------- */
+$('connect').onclick=connect;
+$('bSave2').onclick=()=>$('bShare').click();
+$('bRaw').onclick=async()=>{
+  const c=$('raw').value.trim();if(!c)return;const o=$('rawOut');
+  try{const r=await send(c,8000);o.textContent='> '+c+'\n'+r.trim()+'\n\n'+o.textContent}catch(e){o.textContent='> '+c+'\n['+e.message+']\n\n'+o.textContent}
+  $('raw').value='';
+};
+document.addEventListener('visibilitychange',async()=>{if(!document.hidden&&running){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}});
+</script>
+</body>
+</html>
