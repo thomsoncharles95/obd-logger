@@ -52,7 +52,7 @@ details summary{color:var(--mute);font-size:13px;margin-bottom:6px}
 <body>
 <header>
   <h1><span class="dot" id="dot"></span>OBD Live Logger</h1>
-  <button id="connect">Connect</button>
+  <button id="connect">Connect</button><button id="bAll" class="alt">Show all devices</button>
   <div class="status" id="status">Open in Bluefy (iPhone) or Chrome (Android). Ignition on, then tap Connect and pick your Veepeak.</div>
 </header>
 
@@ -167,13 +167,14 @@ const lines=r=>r.split(/[\r\n]+/).map(s=>s.replace(/\s/g,'').toUpperCase()).filt
 
 /* ---------- connect ---------- */
 function setStatus(t,state){$('status').textContent=t;$('dot').className='dot'+(state?' '+state:'')}
-async function connect(){
+async function connect(all){
   try{
     if(!navigator.bluetooth){setStatus('This browser has no Web Bluetooth. On iPhone use the Bluefy browser; on Android use Chrome.','');return}
     try{wake=await navigator.wakeLock.request('screen')}catch(e){}
     step='choosing device';
     if(!dev){
-      dev=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:SERVICES});
+      const NAMES=['VEEPEAK','Veepeak','OBD','OBDII','OBDCheck','V-LINK','Vlink','IOS-Vlink','Vgate','iCar','ELM','Carista'];
+      dev=await navigator.bluetooth.requestDevice(all?{acceptAllDevices:true,optionalServices:SERVICES}:{filters:NAMES.map(n=>({namePrefix:n})),optionalServices:SERVICES});
       dev.addEventListener('gattserverdisconnected',onDisc);
     }
     $('connect').disabled=true;setStatus('Connecting to '+(dev.name||'adapter')+'…','warn');
@@ -299,7 +300,7 @@ setInterval(()=>{if(rows.length&&running){try{localStorage.setItem('obdLog',csv(
 try{const s=localStorage.getItem('obdLog');if(s){recovered=s;msg('Recovered a log from your last session ('+s.split('\n').length+' lines). Share or Download will save it until you start a new one.')}}catch(e){}
 
 /* ---------- wiring ---------- */
-$('connect').onclick=connect;
+$('connect').onclick=()=>connect(false);$('bAll').onclick=()=>connect(true);
 $('bSave2').onclick=()=>$('bShare').click();
 $('bRaw').onclick=async()=>{
   const c=$('raw').value.trim();if(!c)return;const o=$('rawOut');
